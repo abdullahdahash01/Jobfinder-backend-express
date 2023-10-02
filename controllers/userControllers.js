@@ -34,7 +34,17 @@ exports.getUser = catchAsync(async (req, res, next) => {
 });
 
 exports.addUser = catchAsync(async (req, res, next) => {
-  const user = await UserModel.create(req.body);
+  const { email, password, passwordConfirm, name, lastName, city, phone } =
+    req.body;
+  const user = await UserModel.create({
+    email,
+    password,
+    passwordConfirm,
+    name,
+    lastName,
+    city,
+    phone,
+  });
 
   res.status(201).json({
     status: "success",
@@ -72,6 +82,7 @@ exports.deleteUser = catchAsync(async (req, res, next) => {
 
 exports.getMe = (req, res, next) => {
   req.params.id = req.user.id;
+  console.log(req.user);
   next();
 };
 
@@ -93,10 +104,29 @@ exports.updateMe = catchAsync(async (req, res, next) => {
       )
     );
 
-  const { email, name } = req.body;
+  const { email, name, lastName, favoriteJobs } = req.body;
+
+  if (req.body.favoriteJobs !== null || req.body.favoriteJobs !== []) {
+    const updatedUser = await UserModel.findByIdAndUpdate(
+      req.user.id,
+      { email: email, name: name, lastName: lastName, favoriteJobs },
+      {
+        new: true,
+        runValidators: true,
+      }
+    );
+
+    return res.status(200).json({
+      status: "success",
+      data: {
+        user: updatedUser,
+      },
+    });
+  }
+
   const updatedUser = await UserModel.findByIdAndUpdate(
     req.user.id,
-    { email: email, name: name },
+    { email: email, name: name, lastName: lastName },
     {
       new: true,
       runValidators: true,

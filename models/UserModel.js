@@ -8,7 +8,11 @@ const userSchema = mongoose.Schema(
   {
     name: {
       type: String,
-      required: [true, "A user has to have a name"],
+      required: [true, "المستخدم يجب ان يكون له اسم"],
+    },
+    lastName: {
+      type: String,
+      required: [true, "المستخدم يجب ان يكون له  اسم ثاني"],
     },
     email: {
       type: String,
@@ -16,11 +20,12 @@ const userSchema = mongoose.Schema(
         validator: function (val) {
           return validator.isEmail(val);
         },
-        message: "Email is invalid",
+        message: "البريد الالكتروني غير صالح",
       },
-      required: [true, "a user must have email"],
+      required: [true, "المستخدم يجب ان يكون له بريد الكتروني"],
       unique: true,
     },
+    verified: { type: Boolean, default: false },
     city: String,
     phone: {
       type: String,
@@ -36,7 +41,7 @@ const userSchema = mongoose.Schema(
     //we use child referencing here
     favoriteJobs: [
       {
-        type: mongoose.Schema.ObjectId,
+        type: mongoose.Schema.Types.ObjectId,
         ref: "Job",
       },
     ],
@@ -51,24 +56,25 @@ const userSchema = mongoose.Schema(
     },
     password: {
       type: String,
-      required: [true, "Please provide a password"],
-      minlength: 8,
+      required: [true, "رجاءا ادخل الرقم السري"],
+      minlength: 10,
       select: false,
     },
     passwordConfirm: {
       type: String,
-      required: [true, "Please confirm your password"],
+      required: [true, "رجاءا ادخل تأكيد الرمز السري"],
       validate: {
         // This only works on CREATE and SAVE!!!
         validator: function (el) {
           return el === this.password;
         },
-        message: "Passwords are not the same!",
+        message: "الرمز السري و تأكيد الرمز السري غير متطابقان",
       },
     },
     passwordChangedAt: Date,
     passwordResetToken: String,
     passwordResetExpires: Date,
+    education: String,
     active: {
       type: Boolean,
       default: true,
@@ -128,7 +134,14 @@ userSchema.methods.changedPasswordAfter = function (JWTTimestamp) {
 };
 
 userSchema.methods.createPasswordResetToken = function () {
-  const resetToken = crypto.randomBytes(32).toString("hex");
+  const resetToken = Math.floor(Math.random() * 1000000)
+    .toString()
+    .padStart(6, "0");
+
+  console.log(resetToken);
+
+  //generating token using crypto module
+  // const resetToken = crypto.randomBytes(32).toString("hex");
 
   this.passwordResetToken = crypto
     .createHash("sha256")

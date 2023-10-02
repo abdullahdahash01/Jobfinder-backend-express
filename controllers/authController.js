@@ -2,9 +2,11 @@ const crypto = require("crypto");
 const { promisify } = require("util");
 const jwt = require("jsonwebtoken");
 const User = require("./../models/UserModel");
+const Token = require("./../models/TokenModel");
 const catchAsync = require("./../utils/catchAsync");
 const AppError = require("./../utils/appError");
 const sendEmail = require("./../utils/email");
+const path = require("path");
 
 const signToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -12,17 +14,71 @@ const signToken = (id) => {
   });
 };
 
-const createSendToken = (user, statusCode, res) => {
-  const token = signToken(user._id);
-  const cookieOptions = {
-    expires: new Date(
-      Date.now() + process.env.JWT_COOKIE_EXPIRES_IN * 24 * 60 * 60 * 1000
-    ),
-    httpOnly: true,
-  };
-  if (process.env.NODE_ENV === "production") cookieOptions.secure = true;
+const createSendTokenForVerification = async (user, statusCode, res, next) => {
+  // const token = signToken(user._id);
+  // const cookieOptions = {
+  //   expires: new Date(
+  //     Date.now() + process.env.JWT_COOKIE_EXPIRES_IN * 24 * 60 * 60 * 1000
+  //   ),
+  //   httpOnly: false,
+  // };
+  // if (process.env.NODE_ENV === "production") cookieOptions.secure = true;
+  // res.cookie("jwt", token, cookieOptions);
 
-  res.cookie("jwt", token, cookieOptions);
+  // Remove password from output
+  user.password = undefined;
+
+  //create Token document
+  const tokenDoc = await Token.create({
+    userId: user._id,
+    token: crypto.randomBytes(32).toString("hex"),
+  });
+
+  const url = `${process.env.BASE_URL}users/${user._id}/verify/${tokenDoc.token}`;
+
+  const message = `الرجاء الضغط على الرابط لتأكيد البريد الالكتروني الخاص بك: ${url}`;
+  try {
+    await sendEmail({
+      email: user.email,
+      subject: "Verify your email",
+      message,
+    });
+
+    res.status(200).json({
+      status: "pending",
+      message:
+        "لقد تم ارسال رابط التحقق الى البريد الالكتروني الخاص بك, يرجى التأكيد ومعاودة تسجيل الدخول",
+    });
+  } catch (err) {
+    return next(
+      new AppError("There was an error sending the email. Try again later!"),
+      500
+    );
+  }
+
+  // res.status(statusCode).json({
+  //   status: "success",
+  //   token,
+  //   data: {
+  //     user,
+  //   },
+  // });
+};
+
+const createSendToken = async (user, statusCode, res) => {
+  const token = signToken(user._id);
+
+  // for sending cookies to browser
+
+  // const cookieOptions = {
+  //   expires: new Date(
+  //     Date.now() + process.env.JWT_COOKIE_EXPIRES_IN * 24 * 60 * 60 * 1000
+  //   ),
+  //   httpOnly: false,
+  // };
+  // if (process.env.NODE_ENV === "production") cookieOptions.secure = true;
+
+  // res.cookie("jwt", token, cookieOptions);
 
   // Remove password from output
   user.password = undefined;
@@ -30,6 +86,7 @@ const createSendToken = (user, statusCode, res) => {
   res.status(statusCode).json({
     status: "success",
     token,
+    message: "تم تغيير الرمز السري بنجاح, يمكنك الان تسجيل الدخول",
     data: {
       user,
     },
@@ -39,12 +96,13 @@ const createSendToken = (user, statusCode, res) => {
 exports.signup = catchAsync(async (req, res, next) => {
   const newUser = await User.create({
     name: req.body.name,
+    lastName: req.body.lastName,
     email: req.body.email,
     password: req.body.password,
     passwordConfirm: req.body.passwordConfirm,
   });
 
-  createSendToken(newUser, 201, res);
+  await createSendTokenForVerification(newUser, 201, res, next);
 });
 
 exports.login = catchAsync(async (req, res, next) => {
@@ -52,17 +110,70 @@ exports.login = catchAsync(async (req, res, next) => {
 
   // 1) Check if email and password exist
   if (!email || !password) {
-    return next(new AppError("Please provide email and password!", 400));
+    return next(
+      new AppError("رجاءا قم بادخال البريد الالكتروني والرقم السري", 400)
+    );
   }
   // 2) Check if user exists && password is correct
   const user = await User.findOne({ email }).select("+password");
 
   if (!user || !(await user.correctPassword(password, user.password))) {
-    return next(new AppError("Incorrect email or password", 401));
+    return next(new AppError("البريد الالكتروني او الرمز السري غير صحيح", 401));
   }
 
+  if (!user.verified) {
+    // const tokenDoc = await Token.create({
+    //   userId: user._id,
+    //   token: crypto.randomBytes(32).toString("hex"),
+    // });
+
+    // const url = `${process.env.BASE_URL}users/${user._id}/verify/${tokenDoc.token}`;
+
+    // const message = `الرجاء الضغط على الرابط لتأكيد البريد الالكتروني الخاص بك: ${url}`;
+    // try {
+    //   await sendEmail({
+    //     email: user.email,
+    //     subject: "Verify your email",
+    //     message,
+    //   });
+    // } catch (err) {
+    //   return next(
+    //     new AppError("There was an error sending the email. Try again later!"),
+    //     500
+    //   );
+    // }
+    return next(
+      new AppError(
+        "يرجى الضغط على الرابط الذي تم ارساله اليك عن طريق البريد الالكتروني الخاص بك",
+        400
+      )
+    );
+  }
+  //sending email to user if not verifies (NOT NECESSARY)
+
+  // if (!user.verified) {
+  //   const token = await Token.findOne({ userId: user._id });
+
+  //   const url = `${process.env.BASE_URL}users/${user._id}/verify/${token.token}`;
+
+  //   const message = url;
+
+  //   await sendEmail({
+  //     email: user.email,
+  //     subject: "Verify your email",
+  //     message,
+  //   });
+
+  //   return next(
+  //     new AppError(
+  //       "لقد تم ارسال رابط التحقق الى البريد الالكتروني الخاص بك, يرجى التأكيد ومعاودة تسجيل الدخول"
+  //     )
+  //   );
+  //   return;
+  // }
+
   // 3) If everything ok, send token to client
-  createSendToken(user, 200, res);
+  await createSendToken(user, 200, res);
 });
 
 exports.logout = (req, res) => {
@@ -166,7 +277,7 @@ exports.forgotPassword = catchAsync(async (req, res, next) => {
   // 1) Get user based on POSTed email
   const user = await User.findOne({ email: req.body.email });
   if (!user) {
-    return next(new AppError("There is no user with email address.", 404));
+    return next(new AppError("لا يوجد حساب عائد لهذا البريد الالكتروني", 404));
   }
 
   // 2) Generate the random reset token
@@ -174,22 +285,31 @@ exports.forgotPassword = catchAsync(async (req, res, next) => {
   await user.save({ validateBeforeSave: false });
 
   // 3) Send it to user's email
+
+  //the code below would fetch the resetToken from req.params
+
+  // const resetURL = `${req.protocol}://${req.get(
+  //   "host"
+  // )}/api/v1/users/resetPassword/${resetToken}`;
+
+  // const message = `Forgot your password? Submit a PATCH request with your new password and passwordConfirm to: ${resetURL}.\nIf you didn't forget your password, please ignore this email!`;
+
   const resetURL = `${req.protocol}://${req.get(
     "host"
-  )}/api/v1/users/resetPassword/${resetToken}`;
+  )}/api/v1/users/resetPassword`;
 
-  const message = `Forgot your password? Submit a PATCH request with your new password and passwordConfirm to: ${resetURL}.\nIf you didn't forget your password, please ignore this email!`;
+  const message = `رمز التحقق الخاص بك هو: ${resetToken}`;
 
   try {
     await sendEmail({
       email: user.email,
-      subject: "Your password reset token (valid for 10 min)",
+      subject: "رمز التحقق",
       message,
     });
 
     res.status(200).json({
       status: "success",
-      message: "Token sent to email!",
+      message: "تم ارسال رمز التحقق الى البريد الالكتروني الخاص بك",
     });
   } catch (err) {
     user.passwordResetToken = undefined;
@@ -197,7 +317,7 @@ exports.forgotPassword = catchAsync(async (req, res, next) => {
     await user.save({ validateBeforeSave: false });
 
     return next(
-      new AppError("There was an error sending the email. Try again later!"),
+      new AppError("تعذر ارسال رمز التحقق, يرجى المحاولة لاحقا"),
       500
     );
   }
@@ -207,7 +327,7 @@ exports.resetPassword = catchAsync(async (req, res, next) => {
   // 1) Get user based on the token
   const hashedToken = crypto
     .createHash("sha256")
-    .update(req.params.token)
+    .update(req.body.token)
     .digest("hex");
 
   const user = await User.findOne({
@@ -217,7 +337,12 @@ exports.resetPassword = catchAsync(async (req, res, next) => {
 
   // 2) If token has not expired, and there is user, set the new password
   if (!user) {
-    return next(new AppError("Token is invalid or has expired", 400));
+    return next(
+      new AppError(
+        "الرمز الذي ادخلته غير صحيح, يرجى التحقق من الرمز المرسل الى بريدك الالكتروني",
+        400
+      )
+    );
   }
   user.password = req.body.password;
   user.passwordConfirm = req.body.passwordConfirm;
@@ -227,7 +352,7 @@ exports.resetPassword = catchAsync(async (req, res, next) => {
 
   // 3) Update changedPasswordAt property for the user
   // 4) Log the user in, send JWT
-  createSendToken(user, 200, res);
+  await createSendToken(user, 200, res);
 });
 
 exports.updatePassword = catchAsync(async (req, res, next) => {
@@ -246,5 +371,29 @@ exports.updatePassword = catchAsync(async (req, res, next) => {
   // User.findByIdAndUpdate will NOT work as intended!
 
   // 4) Log user in, send JWT
-  createSendToken(user, 200, res);
+  await createSendToken(user, 200, res);
+});
+
+//user verification
+exports.verifyUser = catchAsync(async (req, res, next) => {
+  const user = await User.findOne({ _id: req.params.id });
+
+  if (!user) {
+    return next(new AppError("Invalid link", 400));
+  }
+
+  const token = await Token.findOne({
+    userId: user._id,
+    token: req.params.token,
+  });
+
+  if (!token) {
+    return next(new AppError("invalid link", 400));
+  }
+
+  await User.findByIdAndUpdate(user._id, { verified: true });
+  await token.remove();
+
+  res.setHeader("Content-Type", "text/html");
+  res.sendFile(path.join(__dirname, "../", "public", "sth.html"));
 });

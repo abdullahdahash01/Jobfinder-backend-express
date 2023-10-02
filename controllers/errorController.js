@@ -1,3 +1,4 @@
+const { json } = require("express");
 const AppError = require("./../utils/appError");
 
 const handleCastErrorDB = (err) => {
@@ -6,28 +7,32 @@ const handleCastErrorDB = (err) => {
 };
 
 const handleDuplicateFieldsDB = (err) => {
-  const value = err.errmsg.match(/(["'])(\\?.)*?\1/)[0];
-  console.log(value);
+  const value = err.message.match(/(["'])(\\?.)*?\1/)[0];
+  // console.log(value);
 
-  const message = `Duplicate field value: ${value}. Please use another value!`;
+  // const message = `Duplicate field value: ${value}. Please use another value!`;
+  const message = `${value} هذا البريد الالكتروني مسجل لدينا, يرجى تسجيل الدخول`;
   return new AppError(message, 400);
 };
 
 const handleValidationErrorDB = (err) => {
   const errors = Object.values(err.errors).map((el) => el.message);
 
-  const message = `Invalid input data. ${errors.join(". ")}`;
+  // const message = `Invalid input data. ${errors.join(". ")}`;
+  const message = ` ${errors.join(". ")}`;
+  // console.log(message);
   return new AppError(message, 400);
 };
 
 const handleJWTError = () =>
-  new AppError("Invalid token. Please log in again!", 401);
+  new AppError("حدث خطأ, يرجى تسجيل الدخول مرة اخرى", 401);
 
 const handleJWTExpiredError = () =>
-  new AppError("Your token has expired! Please log in again.", 401);
+  new AppError("تم انتهاء صلاحية جلستك, يرجى تسجيل الدخول مرة اخرى", 401);
 
 const sendErrorDev = (err, req, res) => {
   // A) API
+
   if (req.originalUrl.startsWith("/api")) {
     return res.status(err.statusCode).json({
       status: err.status,
@@ -39,7 +44,7 @@ const sendErrorDev = (err, req, res) => {
 
   // B) RENDERED WEBSITE
   console.error("ERROR 💥", err);
-  return res.status(err.statusCode).render("error", {
+  return res.status(err.statusCode).json({
     title: "Something went wrong!",
     msg: err.message,
   });
@@ -49,7 +54,10 @@ const sendErrorProd = (err, req, res) => {
   // A) API
   if (req.originalUrl.startsWith("/api")) {
     // A) Operational, trusted error: send message to client
+    // console.log(err);
     if (err.isOperational) {
+      console.log("this is the error " + err);
+
       return res.status(err.statusCode).json({
         status: err.status,
         message: err.message,
@@ -69,7 +77,7 @@ const sendErrorProd = (err, req, res) => {
   // A) Operational, trusted error: send message to client
   if (err.isOperational) {
     console.log(err);
-    return res.status(err.statusCode).render("error", {
+    return res.status(err.statusCode).json({
       title: "Something went wrong!",
       msg: err.message,
     });
@@ -78,7 +86,7 @@ const sendErrorProd = (err, req, res) => {
   // 1) Log error
   console.error("ERROR 💥", err);
   // 2) Send generic message
-  return res.status(err.statusCode).render("error", {
+  return res.status(err.statusCode).json({
     title: "Something went wrong!",
     msg: "Please try again later.",
   });
@@ -98,7 +106,11 @@ module.exports = (err, req, res, next) => {
 
     if (error.name === "CastError") error = handleCastErrorDB(error);
     if (error.code === 11000) error = handleDuplicateFieldsDB(error);
-    if (error.name === "ValidationError")
+    //the code below doesn't worl
+
+    // if (error.name === "ValidationError")
+    //   error = handleValidationErrorDB(error);
+    if (error._message === "User validation failed")
       error = handleValidationErrorDB(error);
     if (error.name === "JsonWebTokenError") error = handleJWTError();
     if (error.name === "TokenExpiredError") error = handleJWTExpiredError();

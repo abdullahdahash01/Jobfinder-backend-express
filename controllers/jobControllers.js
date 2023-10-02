@@ -3,7 +3,29 @@ const catchAsync = require("./../utils/catchAsync");
 
 exports.getAllJobs = async (req, res, next) => {
   try {
-    const jobs = await JobModel.find();
+    const { value } = req.query;
+    console.log(value);
+
+    let jobs = [];
+    if (!value) {
+      jobs = await JobModel.find();
+    } else {
+      const regex = new RegExp(value, "i"); // "i" means case-insensitive
+      // const regex = "";
+
+      jobs = await JobModel.find({
+        $or: [
+          { title: regex },
+          { city: regex },
+          { qualifications: { $elemMatch: { value: regex } } },
+          { description: { $elemMatch: { value: regex } } },
+          { youDo: { $elemMatch: { value: regex } } },
+          { niceToHave: { $elemMatch: { value: regex } } },
+          //add created by company later
+        ],
+      });
+    }
+    // console.log(jobs);
 
     res.status(200).json({
       status: "success",
@@ -20,9 +42,11 @@ exports.getAllJobs = async (req, res, next) => {
 exports.getJob = catchAsync(async (req, res, next) => {
   const jobId = req.params.id;
 
-  const job = await JobModel.findById(jobId).populate({
-    path: "createdByUser",
-  });
+  const job = await JobModel.findById(jobId)
+    .populate({
+      path: "createdByUser",
+    })
+    .populate({ path: "createdByCompany" });
 
   res.status(200).json({
     status: "success",
@@ -35,6 +59,8 @@ exports.getJob = catchAsync(async (req, res, next) => {
 
 exports.addJob = catchAsync(async (req, res, next) => {
   const job = await JobModel.create(req.body);
+
+  // use backend validation as well
 
   res.status(201).json({
     status: "success",
